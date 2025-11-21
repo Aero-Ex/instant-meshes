@@ -120,6 +120,12 @@ class InstantMeshesPreferences(AddonPreferences):
         default=True,
     )
 
+    detached_interactive_mode: BoolProperty(
+        name="Fully Detach Interactive Sessions",
+        description="Launch Instant Meshes completely detached (prevents freezing but can't track process)",
+        default=False,
+    )
+
     def draw(self, context):
         layout = self.layout
 
@@ -153,6 +159,13 @@ class InstantMeshesPreferences(AddonPreferences):
         box.prop(self, "keep_temp_files")
         box.prop(self, "show_console_output")
         box.prop(self, "auto_select_result")
+
+        layout.separator()
+        box = layout.box()
+        box.label(text="Interactive Mode:", icon='BRUSH_DATA')
+        box.prop(self, "detached_interactive_mode")
+        if self.detached_interactive_mode:
+            box.label(text="⚠ Process won't be tracked", icon='INFO')
 
 
 # ============================================================================
@@ -853,12 +866,65 @@ class MESH_OT_instant_meshes_interactive(Operator):
             # Launch Instant Meshes GUI (no batch mode flags)
             self.report({'INFO'}, "Launching Instant Meshes GUI...")
 
-            # Launch process (don't wait for it)
-            process = subprocess.Popen(
-                [executable, input_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            process = None
+
+            # Check if fully detached mode is enabled
+            if preferences.detached_interactive_mode:
+                # Fully detached mode - launch and forget (prevents all freezing)
+                try:
+                    if platform.system() == "Windows":
+                        # Windows: Use os.startfile or CREATE_NEW_CONSOLE
+                        os.startfile(executable, arguments=f'"{input_path}"')
+                    elif platform.system() == "Darwin":
+                        # macOS: Use open command
+                        subprocess.Popen(
+                            ['open', '-a', executable, input_path],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            stdin=subprocess.DEVNULL,
+                        )
+                    else:
+                        # Linux: Fork and exec in background
+                        subprocess.Popen(
+                            [executable, input_path],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            stdin=subprocess.DEVNULL,
+                            start_new_session=True,
+                            preexec_fn=os.setpgrp if hasattr(os, 'setpgrp') else None,
+                        )
+                    # Don't track process in fully detached mode
+                    process = None
+                except Exception as e:
+                    self.report({'WARNING'}, f"Detached launch failed: {e}, trying normal launch")
+                    preferences.detached_interactive_mode = False
+
+            # Normal mode with process tracking
+            if not preferences.detached_interactive_mode or process is None:
+                try:
+                    # Platform-specific process launch to avoid freezing
+                    if platform.system() == "Windows":
+                        # Windows: Use DETACHED_PROCESS to avoid blocking
+                        DETACHED_PROCESS = 0x00000008
+                        process = subprocess.Popen(
+                            [executable, input_path],
+                            creationflags=DETACHED_PROCESS,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            stdin=subprocess.DEVNULL,
+                        )
+                    else:
+                        # Linux/Mac: Use start_new_session to detach
+                        process = subprocess.Popen(
+                            [executable, input_path],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            stdin=subprocess.DEVNULL,
+                            start_new_session=True,
+                        )
+                except Exception as e:
+                    self.report({'ERROR'}, f"Failed to launch process: {e}")
+                    return {'CANCELLED'}
 
             # Track this session
             global _active_sessions
@@ -997,13 +1063,17 @@ class MESH_OT_instant_meshes_close_session(Operator):
         if obj.name in _active_sessions:
             session = _active_sessions[obj.name]
 
-            # Try to terminate process if still running
-            if session.process and session.process.poll() is None:
+            # Try to terminate process if still running (only if tracked)
+            if session.process is not None:
                 try:
-                    session.process.terminate()
-                    session.process.wait(timeout=5)
-                except:
-                    pass
+                    if session.process.poll() is None:
+                        session.process.terminate()
+                        session.process.wait(timeout=5)
+                except Exception as e:
+                    print(f"Warning: Could not terminate process: {e}")
+            else:
+                # Process was launched in detached mode - can't terminate
+                self.report({'INFO'}, "Process was detached - please close Instant Meshes manually if still running")
 
             # Clean up temp files if requested
             if not preferences.keep_temp_files:
