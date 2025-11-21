@@ -1,0 +1,108 @@
+# Instant Meshes Blender Addon - File Manifest
+
+## Addon Files
+
+__init__.py
+    Main addon file containing all functionality:
+    - Addon preferences and configuration
+    - Property definitions for all parameters
+    - Main retopology operator
+    - UI panels for 3D viewport
+    - Registration/unregistration code
+    Size: ~20KB
+    Required: YES
+
+## Documentation Files
+
+README.md
+    Comprehensive documentation including:
+    - Feature overview
+    - Installation instructions
+    - Usage guide with examples
+    - Parameter reference
+    - Tips and troubleshooting
+    - FAQ
+    Size: ~15KB
+    Required: NO (but highly recommended)
+
+INSTALLATION.md
+    Quick installation guide:
+    - Step-by-step setup for all platforms
+    - Executable download links
+    - Configuration instructions
+    Size: ~3KB
+    Required: NO (but recommended for first-time users)
+
+QUICKSTART.md
+    60-second getting started guide:
+    - Basic workflow
+    - Common use cases
+    - Quick tips
+    Size: ~2KB
+    Required: NO (but recommended for beginners)
+
+MANIFEST.txt
+    This file - lists all addon components
+    Size: ~2KB
+    Required: NO
+
+examples/
+    (Optional) Example scripts and presets
+    See examples/README.md for details
+    Required: NO
+
+## Installation
+
+Minimum required file:
+- __init__.py
+
+Recommended for users:
+- __init__.py
+- README.md
+- INSTALLATION.md
+- QUICKSTART.md
+
+For distribution, include all files.
+
+## File Structure
+
+```
+blender_addon/
+├── __init__.py           (Required - main addon code)
+├── README.md             (Recommended - full documentation)
+├── INSTALLATION.md       (Recommended - installation guide)
+├── QUICKSTART.md         (Recommended - quick start guide)
+├── MANIFEST.txt          (Optional - this file)
+└── examples/             (Optional - example scripts)
+    ├── README.md
+    └── batch_retopo.py
+```
+
+## Version Information
+
+Version: 1.0.0
+Blender Compatibility: 2.80+
+Python Version: 3.7+
+Platform: Windows, macOS, Linux
+
+## Dependencies
+
+Python (included with Blender):
+- bpy (Blender Python API)
+- os, sys, subprocess (Python standard library)
+- tempfile, platform (Python standard library)
+
+External (required):
+- Instant Meshes executable
+  Download from: https://github.com/wjakob/instant-meshes/releases
+
+## License
+
+BSD-style license (matching Instant Meshes)
+See ../LICENSE.txt for full license text
+
+## Support
+
+- Issues: https://github.com/wjakob/instant-meshes/issues
+- Documentation: See README.md
+- Instant Meshes project: https://github.com/wjakob/instant-meshes
