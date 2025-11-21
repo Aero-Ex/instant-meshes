@@ -1,8 +1,52 @@
 # Complete Feature List - Instant Meshes Blender Addon
 
-## 🎯 ALL Instant Meshes Functionality Exposed!
+## 🎯 ALL Instant Meshes Functionality Exposed + Interactive Field Editing!
 
 This document lists EVERY feature from Instant Meshes that is now available in Blender.
+
+**Version 3.0.0** adds full interactive field editing support!
+
+---
+
+## ✅ Interactive Field Editing (NEW in v3.0!)
+
+### Launch Instant Meshes GUI
+- ✅ **Open in Instant Meshes** - Launch GUI from Blender
+- ✅ **Auto-export mesh** - Automatically exports your mesh
+- ✅ **Session tracking** - Remembers active editing sessions
+- ✅ **Persistent temp files** - Files persist during editing session
+
+### Visual Field Editing
+- ✅ **Visualize orientation field** - See directional arrows on mesh
+- ✅ **Visualize position field** - See isolines showing edge placement
+- ✅ **Brush editing tools** - Paint and smooth fields with brushes
+- ✅ **Hard constraints** - Place exact constraints at specific points
+- ✅ **Singularity visualization** - See field singularities highlighted
+- ✅ **Real-time preview** - Changes visible immediately
+
+### Reimport Workflow
+- ✅ **One-click reimport** - Import edited mesh back to Blender
+- ✅ **Change detection** - Only reimports when file changes
+- ✅ **Iterative editing** - Edit → Save → Reimport → Repeat
+- ✅ **Session management** - Track and close sessions
+- ✅ **Auto cleanup** - Removes temp files when done
+
+### Interactive Workflow
+```
+Blender → Edit Fields Interactively
+  ↓
+Instant Meshes GUI opens
+  ↓
+Edit orientation/position fields
+  ↓
+Save output
+  ↓
+Blender → Reimport Result
+  ↓
+Done! (or iterate)
+```
+
+See [INTERACTIVE_MODE.md](INTERACTIVE_MODE.md) for complete guide.
 
 ---
 
@@ -254,14 +298,18 @@ These Instant Meshes features are NOT exposed because they're not applicable:
 
 | Feature | Why Not Exposed |
 |---------|----------------|
-| `--fullscreen` / `-F` | GUI-only option, not relevant for batch mode |
+| `--fullscreen` / `-F` | GUI-only option for launching in fullscreen |
 | `--compat` / `-C` | Only for loading old Instant Meshes snapshots (not mesh files) |
 | `--help` / `-h` | Built into addon help system |
-| GUI brush tools | Interactive tools not available in batch mode |
-| Field visualization | GUI visualization not available in batch mode |
-| Interactive editing | GUI feature not available in batch mode |
 
-**These are GUI-specific features that can't be exposed in batch mode.**
+**Everything else is now supported!**
+
+### ~~What Used to be Missing~~ (NOW AVAILABLE!)
+- ~~GUI brush tools~~ → ✅ **NOW AVAILABLE via Interactive Mode!**
+- ~~Field visualization~~ → ✅ **NOW AVAILABLE via Interactive Mode!**
+- ~~Interactive editing~~ → ✅ **NOW AVAILABLE via Interactive Mode!**
+
+**Version 3.0 adds interactive field editing - truly 100% feature coverage!**
 
 ---
 
@@ -316,10 +364,14 @@ Instant\ Meshes input.obj -o output.obj \
 
 ### What You Get:
 ✅ **15 Instant Meshes command-line parameters** - ALL exposed in UI
+✅ **Interactive field editing** - Full GUI access (NEW v3.0!)
+✅ **Visual field editing** - Brush tools, constraints, visualization
+✅ **Reimport workflow** - Edit → Save → Reimport → Iterate
 ✅ **2 file formats** - OBJ and PLY support
 ✅ **2 input types** - Mesh and Point Cloud
 ✅ **8 presets** - Ready-to-use configurations
 ✅ **Batch processing** - Process multiple objects
+✅ **Session management** - Track interactive editing sessions
 ✅ **6 organized panels** - Clean, intuitive interface
 ✅ **Complete preferences** - Global settings control
 ✅ **Error handling** - Robust validation and reporting

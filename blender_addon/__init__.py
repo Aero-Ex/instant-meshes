@@ -1,11 +1,12 @@
 """
-Instant Meshes Blender Addon - FULL EDITION
-============================================
+Instant Meshes Blender Addon - FULL EDITION with INTERACTIVE FIELD EDITING
+============================================================================
 
 Complete integration of ALL Instant Meshes functionality into Blender.
 
 This addon exposes 100% of Instant Meshes features including:
 - Mesh and Point Cloud retopology
+- Interactive Field Editing (NEW!)
 - Multiple file format support (OBJ, PLY)
 - Complete parameter control
 - Preset system
@@ -17,12 +18,12 @@ License: BSD (matching Instant Meshes license)
 """
 
 bl_info = {
-    "name": "Instant Meshes Retopology (Full)",
+    "name": "Instant Meshes Retopology (Full + Interactive)",
     "author": "Instant Meshes Team",
-    "version": (2, 0, 0),
+    "version": (3, 0, 0),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > Instant Meshes",
-    "description": "Complete Instant Meshes integration - all features exposed",
+    "description": "Complete Instant Meshes integration with interactive field editing",
     "warning": "Requires Instant Meshes executable",
     "doc_url": "https://github.com/wjakob/instant-meshes",
     "category": "Mesh",
@@ -35,6 +36,9 @@ import subprocess
 import tempfile
 import platform
 import json
+import time
+import threading
+from pathlib import Path
 from bpy.props import (
     StringProperty,
     IntProperty,
@@ -50,6 +54,28 @@ from bpy.types import (
     PropertyGroup,
     UIList,
 )
+from bpy.app.handlers import persistent
+
+
+# ============================================================================
+# Global Session Tracking
+# ============================================================================
+
+# Store active interactive sessions
+_active_sessions = {}  # object_name -> session_data
+
+
+class InteractiveSession:
+    """Tracks an interactive Instant Meshes session"""
+    def __init__(self, object_name, input_file, output_file, process=None):
+        self.object_name = object_name
+        self.input_file = input_file
+        self.output_file = output_file
+        self.process = process
+        self.start_time = time.time()
+        self.last_modified = None
+        if os.path.exists(output_file):
+            self.last_modified = os.path.getmtime(output_file)
 
 
 # ============================================================================
@@ -352,6 +378,34 @@ class InstantMeshesProperties(PropertyGroup):
         name="Active Preset",
         description="Currently active preset",
         default=0,
+    )
+
+    # ========================================================================
+    # Interactive Session Tracking
+    # ========================================================================
+
+    interactive_session_active: BoolProperty(
+        name="Interactive Session Active",
+        description="Whether an interactive Instant Meshes session is active for this object",
+        default=False,
+    )
+
+    interactive_input_file: StringProperty(
+        name="Interactive Input File",
+        description="Path to input file for interactive session",
+        default="",
+    )
+
+    interactive_output_file: StringProperty(
+        name="Interactive Output File",
+        description="Path to output file for interactive session",
+        default="",
+    )
+
+    interactive_watch_output: BoolProperty(
+        name="Watch Output File",
+        description="Automatically reimport when output file changes",
+        default=True,
     )
 
 
@@ -741,6 +795,237 @@ class MESH_OT_instant_meshes_test_executable(Operator):
             return {'CANCELLED'}
 
 
+class MESH_OT_instant_meshes_interactive(Operator):
+    """Launch Instant Meshes GUI for interactive field editing"""
+    bl_idname = "mesh.instant_meshes_interactive"
+    bl_label = "Edit Fields Interactively"
+    bl_description = "Open mesh in Instant Meshes GUI for manual field editing"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object is not None and
+                context.active_object.type == 'MESH' and
+                context.active_object.mode == 'OBJECT')
+
+    def execute(self, context):
+        executable = get_executable_path(context)
+        if not executable:
+            self.report({'ERROR'}, "Instant Meshes executable not found!")
+            return {'CANCELLED'}
+
+        props = context.scene.instant_meshes_props
+        obj = context.active_object
+        preferences = context.preferences.addons[__name__].preferences
+
+        # Create persistent directory for this session
+        session_dir = os.path.join(tempfile.gettempdir(), "instant_meshes_sessions", obj.name)
+        os.makedirs(session_dir, exist_ok=True)
+
+        # Determine format
+        out_format = props.output_format.lower()
+        input_path = os.path.join(session_dir, f"input.{out_format}")
+        output_path = os.path.join(session_dir, f"output.{out_format}")
+
+        try:
+            # Export mesh
+            self.report({'INFO'}, f"Exporting mesh to {input_path}...")
+            bpy.ops.object.select_all(action='DESELECT')
+            obj.select_set(True)
+            context.view_layer.objects.active = obj
+
+            # Export based on format
+            if out_format == 'obj':
+                bpy.ops.wm.obj_export(
+                    filepath=input_path,
+                    export_selected_objects=True,
+                    apply_modifiers=True,
+                    export_uv=False,
+                    export_materials=False,
+                )
+            elif out_format == 'ply':
+                bpy.ops.wm.ply_export(
+                    filepath=input_path,
+                    export_selected_objects=True,
+                    apply_modifiers=True,
+                )
+
+            # Launch Instant Meshes GUI (no batch mode flags)
+            self.report({'INFO'}, "Launching Instant Meshes GUI...")
+
+            # Launch process (don't wait for it)
+            process = subprocess.Popen(
+                [executable, input_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            # Track this session
+            global _active_sessions
+            session = InteractiveSession(obj.name, input_path, output_path, process)
+            _active_sessions[obj.name] = session
+
+            # Store session info in scene properties
+            props.interactive_session_active = True
+            props.interactive_input_file = input_path
+            props.interactive_output_file = output_path
+
+            self.report({'INFO'},
+                       f"Instant Meshes GUI launched! Edit fields, then use 'Reimport Result' button.")
+
+            # Show instructions
+            self.report({'INFO'},
+                       "In Instant Meshes: 1) Solve orientation field, 2) Edit with brushes, " +
+                       "3) Solve position field, 4) Extract mesh, 5) Save output, 6) Return to Blender")
+
+            return {'FINISHED'}
+
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to launch Instant Meshes: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+
+
+class MESH_OT_instant_meshes_reimport(Operator):
+    """Reimport result from interactive Instant Meshes session"""
+    bl_idname = "mesh.instant_meshes_reimport"
+    bl_label = "Reimport Result"
+    bl_description = "Import the mesh saved from Instant Meshes GUI"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        props = context.scene.instant_meshes_props
+        return (context.active_object is not None and
+                context.active_object.type == 'MESH' and
+                props.interactive_session_active and
+                os.path.exists(props.interactive_output_file))
+
+    def execute(self, context):
+        props = context.scene.instant_meshes_props
+        preferences = context.preferences.addons[__name__].preferences
+        obj = context.active_object
+
+        output_path = props.interactive_output_file
+        out_format = props.output_format.lower()
+
+        try:
+            # Check if file was updated
+            if not os.path.exists(output_path):
+                self.report({'ERROR'}, "Output file not found. Save your work in Instant Meshes first!")
+                return {'CANCELLED'}
+
+            # Get file modification time
+            mtime = os.path.getmtime(output_path)
+
+            # Check if file is newer than last import
+            global _active_sessions
+            if obj.name in _active_sessions:
+                session = _active_sessions[obj.name]
+                if session.last_modified and mtime <= session.last_modified:
+                    self.report({'WARNING'},
+                               "Output file hasn't changed. Save your work in Instant Meshes first!")
+                    return {'CANCELLED'}
+                session.last_modified = mtime
+
+            # Import result
+            self.report({'INFO'}, f"Importing from {output_path}...")
+
+            orig_name = obj.name
+            orig_location = obj.location.copy()
+
+            # Import based on format
+            if out_format == 'obj':
+                bpy.ops.wm.obj_import(filepath=output_path)
+            elif out_format == 'ply':
+                bpy.ops.wm.ply_import(filepath=output_path)
+
+            imported_obj = context.selected_objects[0] if context.selected_objects else None
+
+            if imported_obj:
+                # Name based on mode
+                if props.output_name_mode == 'SUFFIX':
+                    imported_obj.name = f"{orig_name}_retopo"
+                elif props.output_name_mode == 'REPLACE':
+                    imported_obj.name = orig_name
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                elif props.output_name_mode == 'CUSTOM':
+                    imported_obj.name = props.custom_output_name
+
+                imported_obj.location = orig_location
+
+                if preferences.auto_select_result:
+                    bpy.ops.object.select_all(action='DESELECT')
+                    imported_obj.select_set(True)
+                    context.view_layer.objects.active = imported_obj
+
+                self.report({'INFO'}, f"✓ Successfully imported '{imported_obj.name}'")
+            else:
+                self.report({'WARNING'}, "Import succeeded but couldn't find object")
+
+            return {'FINISHED'}
+
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to import: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+
+
+class MESH_OT_instant_meshes_close_session(Operator):
+    """Close interactive Instant Meshes session"""
+    bl_idname = "mesh.instant_meshes_close_session"
+    bl_label = "Close Interactive Session"
+    bl_description = "Close the interactive session and clean up temp files"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        props = context.scene.instant_meshes_props
+        return (context.active_object is not None and
+                props.interactive_session_active)
+
+    def execute(self, context):
+        props = context.scene.instant_meshes_props
+        obj = context.active_object
+        preferences = context.preferences.addons[__name__].preferences
+
+        global _active_sessions
+
+        # Clean up session
+        if obj.name in _active_sessions:
+            session = _active_sessions[obj.name]
+
+            # Try to terminate process if still running
+            if session.process and session.process.poll() is None:
+                try:
+                    session.process.terminate()
+                    session.process.wait(timeout=5)
+                except:
+                    pass
+
+            # Clean up temp files if requested
+            if not preferences.keep_temp_files:
+                try:
+                    import shutil
+                    session_dir = os.path.dirname(session.input_file)
+                    if os.path.exists(session_dir):
+                        shutil.rmtree(session_dir)
+                except Exception as e:
+                    print(f"Warning: Could not clean up session directory: {e}")
+
+            del _active_sessions[obj.name]
+
+        # Clear session properties
+        props.interactive_session_active = False
+        props.interactive_input_file = ""
+        props.interactive_output_file = ""
+
+        self.report({'INFO'}, "Interactive session closed")
+        return {'FINISHED'}
+
+
 # ============================================================================
 # UI Panels
 # ============================================================================
@@ -780,6 +1065,34 @@ class VIEW3D_PT_instant_meshes(Panel):
         if len(selected_meshes) > 1:
             box.operator("mesh.instant_meshes_batch", icon='RENDERLAYERS',
                         text=f"Batch Process ({len(selected_meshes)} objects)")
+
+        # Interactive Field Editing
+        layout.separator()
+        box = layout.box()
+        box.label(text="Interactive Field Editing:", icon='BRUSH_DATA')
+
+        if props.interactive_session_active:
+            # Session is active
+            col = box.column(align=True)
+            col.label(text="✓ Session Active", icon='CHECKMARK')
+            col.operator("mesh.instant_meshes_reimport", icon='IMPORT', text="Reimport Result")
+            col.operator("mesh.instant_meshes_close_session", icon='X', text="Close Session")
+
+            # Show session info
+            if props.interactive_output_file:
+                infobox = box.box()
+                infobox.label(text="Waiting for output file...", icon='TIME')
+                if os.path.exists(props.interactive_output_file):
+                    infobox.label(text="✓ Output file exists", icon='CHECKMARK')
+                else:
+                    infobox.label(text="Save from Instant Meshes GUI", icon='INFO')
+        else:
+            # No active session
+            if context.active_object and context.active_object.type == 'MESH':
+                box.operator("mesh.instant_meshes_interactive", icon='BRUSH_DATA', text="Edit Fields Interactively")
+                box.label(text="Opens Instant Meshes GUI", icon='INFO')
+            else:
+                box.label(text="Select a mesh object", icon='INFO')
 
         # Input type
         layout.separator()
@@ -959,6 +1272,9 @@ classes = (
     MESH_OT_instant_meshes_batch,
     MESH_OT_instant_meshes_apply_preset,
     MESH_OT_instant_meshes_test_executable,
+    MESH_OT_instant_meshes_interactive,
+    MESH_OT_instant_meshes_reimport,
+    MESH_OT_instant_meshes_close_session,
     VIEW3D_PT_instant_meshes,
     VIEW3D_PT_instant_meshes_presets,
     VIEW3D_PT_instant_meshes_size,
